@@ -1,6 +1,6 @@
 import tweepy
 from airtable import Airtable
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import google.generativeai as genai
 import schedule
 import time
@@ -32,7 +32,14 @@ class TwitterBot:
                                          access_token_secret=TWITTER_ACCESS_TOKEN_SECRET,
                                          wait_on_rate_limit=True)
 
-        self.airtable = Airtable(AIRTABLE_BASE_KEY, AIRTABLE_TABLE_NAME, AIRTABLE_API_KEY)
+        try:
+            self.airtable = Airtable(AIRTABLE_BASE_KEY, AIRTABLE_TABLE_NAME, AIRTABLE_API_KEY)
+            # Test connection
+            self.airtable.get_all(maxRecords=1)
+            print("✅ Airtable connection successful")
+        except Exception as e:
+            print(f"❌ Error connecting to Airtable: {str(e)}")
+            raise Exception("Airtable connection failed. Please check your credentials.")
         self.twitter_me_id = self.get_me_id()
         self.tweet_response_limit = 35 # How many tweets to respond to each time the program wakes up
 
@@ -116,7 +123,7 @@ class TwitterBot:
     def get_mentions(self):
         # If doing this in prod make sure to deal with pagination. There could be a lot of mentions!
         # Get current time in UTC
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
 
         # Subtract 2 hours to get the start time
         start_time = now - timedelta(minutes=20)
@@ -131,11 +138,15 @@ class TwitterBot:
 
     # Checking to see if we've already responded to a mention with what's logged in airtable
     def check_already_responded(self, mentioned_conversation_tweet_id):
-        records = self.airtable.get_all(view='Grid view')
-        for record in records:
-            if record['fields'].get('conversation_id') == str(mentioned_conversation_tweet_id):
-                return True
-        return False
+        try:
+            records = self.airtable.get_all(view='Grid view')
+            for record in records:
+                if record['fields'].get('conversation_id') == str(mentioned_conversation_tweet_id):
+                    return True
+            return False
+        except Exception as e:
+            print(f"Error checking Airtable records: {str(e)}")
+            return False
 
     # Run through all mentioned tweets and generate a response
     def respond_to_mentions(self):
@@ -161,19 +172,23 @@ class TwitterBot:
     
     # The main entry point for the bot with some logging
     def execute_replies(self):
-        print (f"Starting Job: {datetime.utcnow().isoformat()}")
+        print (f"Starting Job: {datetime.now(UTC).isoformat()}")
         self.respond_to_mentions()
-        print (f"Finished Job: {datetime.utcnow().isoformat()}, Found: {self.mentions_found}, Replied: {self.mentions_replied}, Errors: {self.mentions_replied_errors}")
+        print (f"Finished Job: {datetime.now(UTC).isoformat()}, Found: {self.mentions_found}, Replied: {self.mentions_replied}, Errors: {self.mentions_replied_errors}")
 
 # The job that we'll schedule to run every 5 minutes
 def job():
-    print(f"Job executed at {datetime.utcnow().isoformat()}")
+    print(f"Job executed at {datetime.now(UTC).isoformat()}")
     bot = TwitterBot()
     bot.execute_replies()
 
 if __name__ == "__main__":
-    # Run the scheduled job every 5 minutes
-    schedule.every(5).minutes.do(job)
+    # Run the scheduled job every 10 minutes instead of 5
+    schedule.every(10).minutes.do(job)
     while True:
-        schedule.run_pending()
-        time.sleep(1)
+        try:
+            schedule.run_pending()
+            time.sleep(1)
+        except Exception as e:
+            print(f"Error in main loop: {str(e)}")
+            time.sleep(60)  # Wait a minute before retrying
