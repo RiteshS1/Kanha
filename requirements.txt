@@ -5,3 +5,4 @@ airtable-python-wrapper==0.15.3
 schedule==1.2.0
 setuptools>=65.5.1
 wheel>=0.38.0
+pymongo==4.6.1
