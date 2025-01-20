@@ -91,29 +91,40 @@ class TwitterBot:
         except Exception as e:
             print(f"❌ Error in like_and_retweet: {str(e)}")
 
-    def execute_bot_actions(self):
-        print(f"\n🤖 Starting Bot Actions: {datetime.now(UTC).isoformat()}")
-        
-        try:
-            # Part 1: Handle mentions
-            mentions = self.get_mentions()
-            if mentions:
-                for mention in mentions:
+   def execute_bot_actions(self):
+    print(f"\n🤖 Starting Bot Actions: {datetime.now(UTC).isoformat()}")
+    
+    try:
+        # Part 1: Handle mentions in batches
+        mentions = self.get_mentions()
+        if mentions:
+            batch_size = 5  # Number of mentions to process in one batch
+            pause_between_batches = 60  # Pause for 60 seconds between batches
+            pause_between_replies = 5  # Pause for 5 seconds between replies
+            
+            # Split mentions into batches
+            for i in range(0, len(mentions), batch_size):
+                batch = mentions[i:i + batch_size]
+                print(f"Processing batch {i // batch_size + 1} with {len(batch)} mentions...")
+
+                for mention in batch:
                     conversation_tweet = self.get_mention_conversation_tweet(mention)
                     if conversation_tweet and not self.check_already_responded(conversation_tweet.id):
                         self.respond_to_mention(mention, conversation_tweet)
-                        time.sleep(5)  # Wait for 5 seconds between responses
-            
-                print("✅ All mentions processed. Bot will sleep now.")
-                time.sleep(60)  # Sleep for 1 minute after processing all mentions
-
-            # Part 2: Like & Retweet @delphic_RS's posts
-            self.like_and_retweet_posts()
-            
-        except Exception as e:
-            print(f"❌ Error in bot execution: {str(e)}")
+                        time.sleep(pause_between_replies)  # Wait between replies
+                
+                print("✅ Batch processed. Pausing before next batch...")
+                time.sleep(pause_between_batches)  # Pause between batches
         
-        print(f"✅ Finished Bot Actions: {datetime.now(UTC).isoformat()}\n")
+        print("✅ All mentions processed. Bot will sleep now.")
+
+        # Part 2: Like & Retweet @delphic_RS's posts
+        self.like_and_retweet_posts()
+        
+    except Exception as e:
+        print(f"❌ Error in bot execution: {str(e)}")
+    
+    print(f"✅ Finished Bot Actions: {datetime.now(UTC).isoformat()}\n")
 
     def generate_response(self, mentioned_conversation_tweet_text):
         safety_settings = [
