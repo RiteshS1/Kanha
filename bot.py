@@ -65,42 +65,43 @@ class TwitterBot:
             tweet_fields=['created_at', 'conversation_id', 'author_id']
         ).data
 
-    def like_and_retweet_posts(self, username="xavier_1256"):
-        try:
-            user = self.twitter_api.get_user(username=username)
-            if not user.data:
-                return
-            
-            tweets = self.twitter_api.get_users_tweets(
-                id=user.data.id,
-                max_results=5,
-                exclude=['replies']  # Exclude replies, only get original tweets
-            ).data
-
-            if not tweets:
-                return
-
-            for tweet in tweets:
-                try:
-                    # Like the tweet
-                    self.twitter_api.like(tweet_id=tweet.id)
-                    print(f"✅ Liked tweet: {tweet.text[:50]}...")
-                    time.sleep(2)  # Delay between like and retweet
-
-                    # Retweet the tweet
-                    self.twitter_api.retweet(tweet_id=tweet.id)
-                    print(f"✅ Retweeted tweet: {tweet.text[:50]}...")
-                    time.sleep(2)  # Delay after retweet
-
-                except tweepy.errors.TooManyRequests:
-                    print("⚠️ Rate limit hit while liking/retweeting, sleeping...")
-                    time.sleep(901)  # Sleep for 15 minutes
-                    continue  # Retry the current tweet after sleeping
-                except Exception as e:
-                    print(f"❌ Error processing tweet {tweet.id}: {str(e)}")
-
-        except Exception as e:
-            print(f"❌ Error in like_and_retweet: {str(e)}")
+    # Commenting out the like and retweet functionality
+    # def like_and_retweet_posts(self, username="xavier_1256"):
+    #     try:
+    #         user = self.twitter_api.get_user(username=username)
+    #         if not user.data:
+    #             return
+    #         
+    #         tweets = self.twitter_api.get_users_tweets(
+    #             id=user.data.id,
+    #             max_results=5,
+    #             exclude=['replies']  # Exclude replies, only get original tweets
+    #         ).data
+    #
+    #         if not tweets:
+    #             return
+    #
+    #         for tweet in tweets:
+    #             try:
+    #                 # Like the tweet
+    #                 self.twitter_api.like(tweet_id=tweet.id)
+    #                 print(f"✅ Liked tweet: {tweet.text[:50]}...")
+    #                 time.sleep(2)  # Delay between like and retweet
+    #
+    #                 # Retweet the tweet
+    #                 self.twitter_api.retweet(tweet_id=tweet.id)
+    #                 print(f"✅ Retweeted tweet: {tweet.text[:50]}...")
+    #                 time.sleep(2)  # Delay after retweet
+    #
+    #             except tweepy.errors.TooManyRequests:
+    #                 print("⚠️ Rate limit hit while liking/retweeting, sleeping...")
+    #                 time.sleep(901)  # Sleep for 15 minutes
+    #                 continue  # Retry the current tweet after sleeping
+    #             except Exception as e:
+    #                 print(f"❌ Error processing tweet {tweet.id}: {str(e)}")
+    #
+    #     except Exception as e:
+    #         print(f"❌ Error in like_and_retweet: {str(e)}")
 
     def execute_bot_actions(self):
         print(f"\n🤖 Starting Bot Actions: {datetime.now(UTC).isoformat()}")
@@ -128,9 +129,7 @@ class TwitterBot:
                     time.sleep(pause_between_batches)  # Pause between batches
             
             print("✅ All mentions processed. Bot will sleep now.")
-
-            # Part 2: Like & Retweet @delphic_RS's posts
-            self.like_and_retweet_posts()
+            # The like_and_retweet_posts method is commented out, so it won't be called here.
             
         except Exception as e:
             print(f"❌ Error in bot execution: {str(e)}")
