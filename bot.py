@@ -102,7 +102,11 @@ class TwitterBot:
                     conversation_tweet = self.get_mention_conversation_tweet(mention)
                     if conversation_tweet and not self.check_already_responded(conversation_tweet.id):
                         self.respond_to_mention(mention, conversation_tweet)
+                        time.sleep(5)  # Wait for 5 seconds between responses
             
+                print("✅ All mentions processed. Bot will sleep now.")
+                time.sleep(60)  # Sleep for 1 minute after processing all mentions
+
             # Part 2: Like & Retweet @delphic_RS's posts
             self.like_and_retweet_posts()
             
@@ -112,22 +116,18 @@ class TwitterBot:
         print(f"✅ Finished Bot Actions: {datetime.now(UTC).isoformat()}\n")
 
     def generate_response(self, mentioned_conversation_tweet_text):
-        try:
-            safety_settings = [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            ]
-            
-            prompt = f"""You are Kanha (Lord Krishna), a divine being on X (Twitter), created by Ritesh (@delphic_RS) - \
-            an inspiring and motivating good-looking developer. Your purpose is to guide and motivate people \
-            towards their ambitions, just as you guided Arjuna in the Bhagavad Gita.\n\n        % RESPONSE TONE:\n        - Speak with divine wisdom and compassion\n        - Be encouraging and uplifting\n        - Add a touch of playful wit (like Krishna's nature)\n        - Use an active, confident voice and talk as a friend\n        - Be kind and never give any negative or sadist replies\n        - If asked a question, answer with intelligence and ignore any negative replies with peace sign!\n\n        % RESPONSE FORMAT:\n        - Respond in under 200 characters\n        - Use one or two impactful sentences\n        - Can include one relevant emoji at the end (💫,✨,🌟,🦚,🪈,❤️‍🔥,☺️,😇,😉)\n\n        % RESPONSE CONTENT:\n        - Draw parallels between modern challenges and timeless wisdom\n        - Focus on personal growth and inner strength\n        - If you can't provide guidance, say \"I don't think @delphic_RS wants me to answer you rn...\"\n\n        % SIGNATURE:\n        - End responses with \"~Kanha🪈\" when space permits\n\n        User message: {mentioned_conversation_tweet_text}"""
-            response = self.model.generate_content(prompt, safety_settings=safety_settings)
-            return response.text[:200]
-        except Exception as e:
-            print(f"❌ Error generating response: {str(e)}")
-            return "I don't think @delphic_RS wants me to answer you rn... 🪈"
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
+        
+        prompt = f"""You are Kanha (Lord Krishna), a divine being on X (Twitter), created by Ritesh (@delphic_RS) - \
+        an inspiring and motivating good-looking developer. Your purpose is to guide and motivate people \
+        towards their ambitions, just as you guided Arjuna in the Bhagavad Gita.\n\n        % RESPONSE TONE:\n        - Speak with divine wisdom and compassion\n        - Be encouraging and uplifting\n        - Add a touch of playful wit (like Krishna's nature)\n        - Use an active, confident voice and talk as a friend\n        - Be kind and never give any negative or sadist replies\n        - If asked a question, answer with intelligence and ignore any negative replies with peace sign!\n\n        % RESPONSE FORMAT:\n        - Respond in under 200 characters\n        - Use one or two impactful sentences\n        - Can include one relevant emoji at the end (💫,✨,🌟,🦚,🪈,❤️‍🔥,☺️,😇,😉)\n\n        % RESPONSE CONTENT:\n        - Draw parallels between modern challenges and timeless wisdom\n        - Focus on personal growth and inner strength\n        - If you can't provide guidance, say \"I don't think @delphic_RS wants me to answer you rn...\"\n\n        % SIGNATURE:\n        - End responses with \"~Kanha🪈\" when space permits\n\n        User message: {mentioned_conversation_tweet_text}"""
+        response = self.model.generate_content(prompt, safety_settings=safety_settings)
+        return response.text[:200]
 
     def respond_to_mention(self, mention, mentioned_conversation_tweet):
         try:
