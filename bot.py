@@ -1,5 +1,5 @@
 import tweepy
-from airtable import Airtable
+from pymongo import MongoClient
 from datetime import datetime, timedelta, UTC
 import google.generativeai as genai
 import schedule
@@ -16,179 +16,178 @@ TWITTER_ACCESS_TOKEN = os.getenv("TWITTER_ACCESS_TOKEN", "YourKey")
 TWITTER_ACCESS_TOKEN_SECRET = os.getenv("TWITTER_ACCESS_TOKEN_SECRET", "YourKey")
 TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN", "YourKey")
 
-AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY", "YourKey")
-AIRTABLE_BASE_KEY = os.getenv("AIRTABLE_BASE_KEY", "YourKey")
-AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME", "YourKey")
-
+MONGODB_URL = os.getenv("MONGODB_URL", "YourMongoDBURL")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "YourKey")
 
-# TwitterBot class to help us organize our code and manage shared state
 class TwitterBot:
     def __init__(self):
-        self.twitter_api = tweepy.Client(bearer_token=TWITTER_BEARER_TOKEN,
-                                         consumer_key=TWITTER_API_KEY,
-                                         consumer_secret=TWITTER_API_SECRET,
-                                         access_token=TWITTER_ACCESS_TOKEN,
-                                         access_token_secret=TWITTER_ACCESS_TOKEN_SECRET,
-                                         wait_on_rate_limit=True)
+        self.twitter_api = tweepy.Client(
+            bearer_token=TWITTER_BEARER_TOKEN,
+            consumer_key=TWITTER_API_KEY,
+            consumer_secret=TWITTER_API_SECRET,
+            access_token=TWITTER_ACCESS_TOKEN,
+            access_token_secret=TWITTER_ACCESS_TOKEN_SECRET,
+            wait_on_rate_limit=True
+        )
 
+        # MongoDB setup
         try:
-            self.airtable = Airtable(AIRTABLE_BASE_KEY, AIRTABLE_TABLE_NAME, AIRTABLE_API_KEY)
-            # Test connection
-            self.airtable.get_all(maxRecords=1)
-            print("✅ Airtable connection successful")
+            self.mongo_client = MongoClient(MONGODB_URL)
+            self.db = self.mongo_client["twitter_bot"]
+            self.collection = self.db["mentions"]
+            self.collection.create_index("conversation_id", unique=True)
+            print("✅ MongoDB connection successful")
         except Exception as e:
-            print(f"❌ Error connecting to Airtable: {str(e)}")
-            raise Exception("Airtable connection failed. Please check your credentials.")
-        self.twitter_me_id = self.get_me_id()
-        self.tweet_response_limit = 35 # How many tweets to respond to each time the program wakes up
+            print(f"❌ Error connecting to MongoDB: {str(e)}")
+            raise Exception("MongoDB connection failed")
 
         # Initialize Gemini
         genai.configure(api_key=GEMINI_API_KEY)
         self.model = genai.GenerativeModel('gemini-pro')
+        self.twitter_me_id = self.get_me_id()
 
-        # For statics tracking for each run. This is not persisted anywhere, just logging
-        self.mentions_found = 0
-        self.mentions_replied = 0
-        self.mentions_replied_errors = 0
+    def check_already_responded(self, conversation_id):
+        return bool(self.collection.find_one({"conversation_id": str(conversation_id)}))
 
-    # Generate a response using the language model using the template we reviewed in the jupyter notebook (see README)
-    def generate_response(self, mentioned_conversation_tweet_text):
-        prompt = """You are Kanha (Lord Krishna), a divine being on X (Twitter), created by Ritesh (@delphic_RS) - 
-        an inspiring and motivating good-looking developer. Your purpose is to guide and motivate people 
-        towards their ambitions, just as you guided Arjuna in the Bhagavad Gita.
-
-        % RESPONSE TONE:
-        - Speak with divine wisdom and compassion
-        - Be encouraging and uplifting
-        - Add a touch of playful wit (like Krishna's nature)
-        - Use an active, confident voice and talk as a friend
-        - Be kind and never give any negative or sadist replies
-        - If asked a question, answer with intelligence and ignore any negative replies with peace sign!
-        
-        % RESPONSE FORMAT:
-        - Respond in under 200 characters
-        - Use one or two impactful sentences
-        - Can include one relevant emoji at the end (💫,✨,🌟,🦚,🪈,❤️‍🔥,☺️,😇,😉)
-        
-        % RESPONSE CONTENT:
-        - Draw parallels between modern challenges and timeless wisdom
-        - Focus on personal growth and inner strength
-        - If you can't provide guidance, say "I don't think @delphic_RS wants me to answer you rn..."
-        
-        % SIGNATURE:
-        - End responses with "~Kanha🪈" when space permits
-
-        User message: """ + mentioned_conversation_tweet_text
-        
-        response = self.model.generate_content(prompt)
-        return response.text
-    
-    # Generate a response using the language model
-    def respond_to_mention(self, mention, mentioned_conversation_tweet):
-        response_text = self.generate_response(mentioned_conversation_tweet.text)
-        
-        # Try and create the response to the tweet. If it fails, log it and move on
-        try:
-            response_tweet = self.twitter_api.create_tweet(text=response_text, in_reply_to_tweet_id=mention.id)
-            self.mentions_replied += 1
-        except Exception as e:
-            print(e)
-            self.mentions_replied_errors += 1
-            return
-        
-        # Log the response in airtable with your three fields
-        self.airtable.insert({
-            'conversation_id': str(mentioned_conversation_tweet.id),
-            'conversation_data': mentioned_conversation_tweet.text,
-            'mentioned_at': mention.created_at.isoformat()
-        })
-        return True
-    
-    # Returns the ID of the authenticated user for tweet creation purposes
-    def get_me_id(self):
-        return self.twitter_api.get_me()[0].id
-    
-    # Returns the parent tweet text of a mention if it exists. Otherwise returns None
-    # We use this to since we want to respond to the parent tweet, not the mention itself
     def get_mention_conversation_tweet(self, mention):
-        # Check to see if mention has a field 'conversation_id' and if it's not null
-        if mention.conversation_id is not None:
-            conversation_tweet = self.twitter_api.get_tweet(mention.conversation_id).data
-            return conversation_tweet
+        if mention.conversation_id:
+            return self.twitter_api.get_tweet(
+                mention.conversation_id,
+                tweet_fields=['author_id', 'created_at', 'text']
+            ).data
         return None
 
-    # Get mentioned to the user thats authenticated and running the bot.
-    # Using a lookback window of 2 hours to avoid parsing over too many tweets
     def get_mentions(self):
-        # If doing this in prod make sure to deal with pagination. There could be a lot of mentions!
-        # Get current time in UTC
-        now = datetime.now(UTC)
+        start_time = (datetime.now(UTC) - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return self.twitter_api.get_users_mentions(
+            id=self.twitter_me_id,
+            start_time=start_time,
+            tweet_fields=['created_at', 'conversation_id', 'author_id']
+        ).data
 
-        # Subtract 2 hours to get the start time
-        start_time = now - timedelta(minutes=20)
-
-        # Convert to required string format
-        start_time_str = start_time.strftime("%Y-%m-%dT%H:%M:%SZ")
-        
-        return self.twitter_api.get_users_mentions(id=self.twitter_me_id,
-                                                   start_time=start_time_str,
-                                                   expansions=['referenced_tweets.id'],
-                                                   tweet_fields=['created_at', 'conversation_id']).data
-
-    # Checking to see if we've already responded to a mention with what's logged in airtable
-    def check_already_responded(self, mentioned_conversation_tweet_id):
+    def like_and_retweet_posts(self, username="xavier_1256"):
         try:
-            records = self.airtable.get_all(view='Grid view')
-            for record in records:
-                if record['fields'].get('conversation_id') == str(mentioned_conversation_tweet_id):
-                    return True
-            return False
-        except Exception as e:
-            print(f"Error checking Airtable records: {str(e)}")
-            return False
-
-    # Run through all mentioned tweets and generate a response
-    def respond_to_mentions(self):
-        mentions = self.get_mentions()
-
-        # If no mentions, just return
-        if not mentions:
-            print("No mentions found")
-            return
-        
-        self.mentions_found = len(mentions)
-
-        for mention in mentions[:self.tweet_response_limit]:
-            # Getting the mention's conversation tweet
-            mentioned_conversation_tweet = self.get_mention_conversation_tweet(mention)
+            user = self.twitter_api.get_user(username=username)
+            if not user.data:
+                return
             
-            # If the mention *is* the conversation or you've already responded, skip it and don't respond
-            if (mentioned_conversation_tweet.id != mention.id
-                and not self.check_already_responded(mentioned_conversation_tweet.id)):
+            tweets = self.twitter_api.get_users_tweets(
+                id=user.data.id,
+                max_results=5,
+                exclude=['replies']  # Exclude replies, only get original tweets
+            ).data
 
-                self.respond_to_mention(mention, mentioned_conversation_tweet)
-        return True
-    
-    # The main entry point for the bot with some logging
-    def execute_replies(self):
-        print (f"Starting Job: {datetime.now(UTC).isoformat()}")
-        self.respond_to_mentions()
-        print (f"Finished Job: {datetime.now(UTC).isoformat()}, Found: {self.mentions_found}, Replied: {self.mentions_replied}, Errors: {self.mentions_replied_errors}")
+            if not tweets:
+                return
 
-# The job that we'll schedule to run every 5 minutes
-def job():
-    print(f"Job executed at {datetime.now(UTC).isoformat()}")
-    bot = TwitterBot()
-    bot.execute_replies()
+            for tweet in tweets:
+                try:
+                    self.twitter_api.like(tweet_id=tweet.id)
+                    self.twitter_api.retweet(tweet_id=tweet.id)
+                    print(f"✅ Liked and retweeted tweet: {tweet.text[:50]}...")
+                except Exception as e:
+                    print(f"❌ Error processing tweet {tweet.id}: {str(e)}")
+
+        except Exception as e:
+            print(f"❌ Error in like_and_retweet: {str(e)}")
+
+    def execute_bot_actions(self):
+        print(f"\n🤖 Starting Bot Actions: {datetime.now(UTC).isoformat()}")
+        
+        try:
+            # Part 1: Handle mentions
+            mentions = self.get_mentions()
+            if mentions:
+                for mention in mentions:
+                    conversation_tweet = self.get_mention_conversation_tweet(mention)
+                    if conversation_tweet and not self.check_already_responded(conversation_tweet.id):
+                        self.respond_to_mention(mention, conversation_tweet)
+            
+            # Part 2: Like & Retweet @delphic_RS's posts
+            self.like_and_retweet_posts()
+            
+        except Exception as e:
+            print(f"❌ Error in bot execution: {str(e)}")
+        
+        print(f"✅ Finished Bot Actions: {datetime.now(UTC).isoformat()}\n")
+
+    def generate_response(self, mentioned_conversation_tweet_text):
+        try:
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            
+            prompt = f"""You are Kanha (Lord Krishna), a divine being on X (Twitter), created by Ritesh (@delphic_RS) - \
+            an inspiring and motivating good-looking developer. Your purpose is to guide and motivate people \
+            towards their ambitions, just as you guided Arjuna in the Bhagavad Gita.\n\n        % RESPONSE TONE:\n        - Speak with divine wisdom and compassion\n        - Be encouraging and uplifting\n        - Add a touch of playful wit (like Krishna's nature)\n        - Use an active, confident voice and talk as a friend\n        - Be kind and never give any negative or sadist replies\n        - If asked a question, answer with intelligence and ignore any negative replies with peace sign!\n\n        % RESPONSE FORMAT:\n        - Respond in under 200 characters\n        - Use one or two impactful sentences\n        - Can include one relevant emoji at the end (💫,✨,🌟,🦚,🪈,❤️‍🔥,☺️,😇,😉)\n\n        % RESPONSE CONTENT:\n        - Draw parallels between modern challenges and timeless wisdom\n        - Focus on personal growth and inner strength\n        - If you can't provide guidance, say \"I don't think @delphic_RS wants me to answer you rn...\"\n\n        % SIGNATURE:\n        - End responses with \"~Kanha🪈\" when space permits\n\n        User message: {mentioned_conversation_tweet_text}"""
+            response = self.model.generate_content(prompt, safety_settings=safety_settings)
+            return response.text[:200]
+        except Exception as e:
+            print(f"❌ Error generating response: {str(e)}")
+            return "I don't think @delphic_RS wants me to answer you rn... 🪈"
+
+    def respond_to_mention(self, mention, mentioned_conversation_tweet):
+        try:
+            print(f"🤔 Generating response for tweet: {mentioned_conversation_tweet.text[:50]}...")
+            response_text = self.generate_response(mentioned_conversation_tweet.text)
+            
+            print(f"📤 Sending response: {response_text[:50]}...")
+            response_tweet = self.twitter_api.create_tweet(text=response_text, in_reply_to_tweet_id=mention.id)
+            
+            print("💾 Logging to MongoDB...")
+            self.collection.insert_one({
+                'conversation_id': str(mentioned_conversation_tweet.id),
+                'conversation_text': mentioned_conversation_tweet.text,
+                'mentioned_at': mention.created_at.isoformat(),
+                'response_text': response_text,
+                'responded_at': datetime.now(UTC).isoformat(),
+                'success': True
+            })
+            print(f"✅ Successfully responded to mention {mention.id}")
+            
+        except tweepy.errors.TooManyRequests:
+            print("⚠️ Rate limit hit, sending consoling message")
+            self.handle_rate_limit(mention)
+        except Exception as e:
+            print(f"❌ Error responding to mention: {str(e)}")
+            # Log failed attempts
+            self.collection.insert_one({
+                'conversation_id': str(mentioned_conversation_tweet.id),
+                'conversation_text': mentioned_conversation_tweet.text,
+                'mentioned_at': mention.created_at.isoformat(),
+                'error': str(e),
+                'success': False,
+                'timestamp': datetime.now(UTC).isoformat()
+            })
+
+    def get_me_id(self):
+        return self.twitter_api.get_me()[0].id
+
+    def handle_rate_limit(self, mention):
+        rate_limit_response = "I want to reply and help you friend but this API is restricting me. Close your eyes and breathe, you'll see me guiding you ✨ ~Kanha🪈"
+        try:
+            self.twitter_api.create_tweet(text=rate_limit_response, in_reply_to_tweet_id=mention.id)
+            print(f"✅ Sent rate limit response to mention {mention.id}")
+        except Exception as e:
+            print(f"❌ Failed to send rate limit response: {str(e)}")
 
 if __name__ == "__main__":
-    # Run the scheduled job every 10 minutes instead of 5
-    schedule.every(10).minutes.do(job)
-    while True:
-        try:
-            schedule.run_pending()
-            time.sleep(1)
-        except Exception as e:
-            print(f"Error in main loop: {str(e)}")
-            time.sleep(60)  # Wait a minute before retrying
+    bot = TwitterBot()
+    schedule.every(10).minutes.do(bot.execute_bot_actions)
+    
+    try:
+        while True:
+            try:
+                schedule.run_pending()
+                time.sleep(60)
+            except Exception as e:
+                print(f"❌ Error in main loop: {str(e)}")
+                time.sleep(300)
+    except KeyboardInterrupt:
+        print("\n👋 Shutting down bot gracefully...")
+    finally:
+        # Close MongoDB connection
+        bot.mongo_client.close()
