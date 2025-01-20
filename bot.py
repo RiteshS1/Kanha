@@ -91,7 +91,7 @@ class TwitterBot:
         except Exception as e:
             print(f"❌ Error in like_and_retweet: {str(e)}")
 
-   def execute_bot_actions(self):
+    def execute_bot_actions(self):
     print(f"\n🤖 Starting Bot Actions: {datetime.now(UTC).isoformat()}")
     
     try:
@@ -125,6 +125,8 @@ class TwitterBot:
         print(f"❌ Error in bot execution: {str(e)}")
     
     print(f"✅ Finished Bot Actions: {datetime.now(UTC).isoformat()}\n")
+
+
 
     def generate_response(self, mentioned_conversation_tweet_text):
         safety_settings = [
