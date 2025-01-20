@@ -82,9 +82,20 @@ class TwitterBot:
 
             for tweet in tweets:
                 try:
+                    # Like the tweet
                     self.twitter_api.like(tweet_id=tweet.id)
+                    print(f"✅ Liked tweet: {tweet.text[:50]}...")
+                    time.sleep(2)  # Delay between like and retweet
+
+                    # Retweet the tweet
                     self.twitter_api.retweet(tweet_id=tweet.id)
-                    print(f"✅ Liked and retweeted tweet: {tweet.text[:50]}...")
+                    print(f"✅ Retweeted tweet: {tweet.text[:50]}...")
+                    time.sleep(2)  # Delay after retweet
+
+                except tweepy.errors.TooManyRequests:
+                    print("⚠️ Rate limit hit while liking/retweeting, sleeping...")
+                    time.sleep(901)  # Sleep for 15 minutes
+                    continue  # Retry the current tweet after sleeping
                 except Exception as e:
                     print(f"❌ Error processing tweet {tweet.id}: {str(e)}")
 
