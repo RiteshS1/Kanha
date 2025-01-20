@@ -92,7 +92,7 @@ class TwitterBot:
             print(f"❌ Error in like_and_retweet: {str(e)}")
 
     def execute_bot_actions(self):
-    print(f"\n🤖 Starting Bot Actions: {datetime.now(UTC).isoformat()}")
+        print(f"\n🤖 Starting Bot Actions: {datetime.now(UTC).isoformat()}")
     
     try:
         # Part 1: Handle mentions in batches
